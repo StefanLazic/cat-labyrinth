@@ -4,19 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
     <meta name="theme-color" content="#100f20">
-    <meta name="description" content="Guide Mochi through a tiny, surprising 3D labyrinth.">
-    <title>Mochi's Midnight Maze</title>
+    <meta name="description" content="Guide Mochi across a tiny, surprising 3D labyrinth board.">
+    <title>Mochi's Moonlit Labyrinth</title>
     <link rel="stylesheet" href="style.css">
     <script src="game.js" defer></script>
   </head>
   <body>
     <main id="game" data-state="intro">
-      <canvas id="maze" aria-label="First-person 3D cat labyrinth"></canvas>
+      <canvas id="maze" role="img" aria-label="An isometric 3D labyrinth board with Mochi the cat"></canvas>
       <div class="vignette" aria-hidden="true"></div>
 
       <header class="hud" aria-label="Game status">
-        <div class="brand"><span>MOCHI'S</span><strong>Midnight Maze</strong></div>
-        <div class="objective"><span id="objective">Find the moon mouse</span><b id="compass" aria-hidden="true">▲</b></div>
+        <div class="brand"><span>MOCHI'S</span><strong>Moonlit Labyrinth</strong></div>
+        <div class="objective"><span id="objective">Catch the moon mouse</span><b id="compass" aria-hidden="true">▲</b></div>
         <div class="stats">
           <span>🐟 <b id="fish-count">0</b>/<b id="fish-total">0</b></span>
           <span>🐾 <b id="steps">0</b></span>
@@ -25,10 +25,8 @@
       </header>
 
       <div id="toast" class="toast" aria-live="polite"></div>
-      <div class="crosshair" aria-hidden="true">•</div>
-
       <section class="touch-controls" aria-label="Touch controls">
-        <div id="joystick" class="joystick" aria-label="Drag to walk and turn">
+        <div id="joystick" class="joystick" aria-label="Drag to move Mochi">
           <span class="joystick-arrows" aria-hidden="true">↖ ↑ ↗<br>← 🐾 →<br>↙ ↓ ↘</span>
           <span id="joystick-knob" class="joystick-knob"></span>
         </div>
@@ -40,11 +38,11 @@
 
       <section id="intro" class="screen">
         <div class="card">
-          <p class="eyebrow">A tiny 3D adventure</p>
+          <p class="eyebrow">A tiny 3D board adventure</p>
           <div class="hero" aria-hidden="true">🐈‍⬛ <span>🌙</span> 🐭</div>
-          <h1>Mochi's<br><em>Midnight Maze</em></h1>
-          <p>The moon mouse stole your bedtime snack. Follow the squeaks, collect fish, and expect the maze to misbehave.</p>
-          <button id="start" class="primary" type="button">Enter the maze</button>
+          <h1>Mochi's<br><em>Moonlit Labyrinth</em></h1>
+          <p>The moon mouse stole your bedtime snack. Guide Mochi across the board, collect fish, and expect the maze to misbehave.</p>
+          <button id="start" class="primary" type="button">Pounce onto the board</button>
           <p class="control-hint"><span>WASD / arrows · Shift to zoom · F to sniff</span><span>Touch stick · Zoom · Sniff</span></p>
         </div>
       </section>

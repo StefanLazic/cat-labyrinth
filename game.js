@@ -1,7 +1,7 @@
 "use strict";
 
 const canvas = document.querySelector("#maze");
-const context = canvas.getContext("2d", { alpha: false });
+const context = canvas.getContext("2d");
 const game = document.querySelector("#game");
 const intro = document.querySelector("#intro");
 const endScreen = document.querySelector("#end");
@@ -14,26 +14,25 @@ const toast = document.querySelector("#toast");
 const joystick = document.querySelector("#joystick");
 const joystickKnob = document.querySelector("#joystick-knob");
 
-const CELL_COUNT = 8;
+const CELL_COUNT = 7;
 const MAP_SIZE = CELL_COUNT * 2 + 1;
-const FOV = Math.PI / 2.9;
-const WALL_COLORS = [
-  [113, 85, 170],
-  [63, 116, 139],
-  [157, 77, 113],
-  [93, 122, 80],
-];
 const directions = [
   { row: -1, col: 0 },
   { row: 0, col: 1 },
   { row: 1, col: 0 },
   { row: 0, col: -1 },
 ];
+const palettes = [
+  { floor: "#f4dfb9", floorAlt: "#ead0a4", top: "#7865bd", left: "#4b3d89", right: "#5c4ca0" },
+  { floor: "#dff1d0", floorAlt: "#c9e6bb", top: "#e36e9c", left: "#963f72", right: "#bd527f" },
+  { floor: "#d6e8f0", floorAlt: "#c1dbe7", top: "#e8a84e", left: "#a76830", right: "#c9853d" },
+];
 
 let map = [];
-let player = { x: 1.5, y: 1.5, angle: 0 };
-let mouse = { x: 0, y: 0, emoji: "🐭" };
+let player = { x: 1.5, y: 1.5, facingX: 1, facingY: 0 };
+let mouse = { x: 1.5, y: 1.5, emoji: "🐭" };
 let fish = [];
+let portals = [];
 let keys = {};
 let stick = { x: 0, y: 0 };
 let playing = false;
@@ -43,9 +42,10 @@ let startedAt = 0;
 let lastFrame = performance.now();
 let dashUntil = 0;
 let sniffUntil = 0;
-let toastTimer;
-let dragLook;
+let portalCooldown = 0;
 let surpriseTriggered = false;
+let paletteIndex = 0;
+let toastTimer;
 
 function shuffle(values) {
   for (let index = values.length - 1; index > 0; index -= 1) {
@@ -67,7 +67,8 @@ function makeMaze() {
     const choices = shuffle(directions.slice()).filter(({ row, col }) => {
       const nextRow = current.row + row;
       const nextCol = current.col + col;
-      return nextRow >= 0 && nextRow < CELL_COUNT && nextCol >= 0 && nextCol < CELL_COUNT && !visited[nextRow][nextCol];
+      return nextRow >= 0 && nextRow < CELL_COUNT && nextCol >= 0 &&
+        nextCol < CELL_COUNT && !visited[nextRow][nextCol];
     });
     if (!choices.length) {
       stack.pop();
@@ -105,23 +106,33 @@ function resetGame() {
   makeMaze();
   const openCells = openCellsByDistance();
   const farthest = openCells[openCells.length - 1];
-  mouse = { x: farthest.x + 0.5, y: farthest.y + 0.5, emoji: Math.random() < 0.18 ? "🦄" : "🐭" };
-  const candidates = openCells.slice(8, -4).filter((_, index) => index % 4 === 0);
-  fish = shuffle(candidates).slice(0, 6).map((cell, index) => ({
+  const candidates = openCells.slice(7, -4);
+  mouse = { x: farthest.x + 0.5, y: farthest.y + 0.5, emoji: Math.random() < 0.12 ? "🦝" : "🐭" };
+  fish = shuffle(candidates.slice()).slice(0, 6).map((cell, index) => ({
     x: cell.x + 0.5,
     y: cell.y + 0.5,
     found: false,
-    phase: index * 0.8,
+    phase: index * 0.9,
   }));
-  player = { x: 1.5, y: 1.5, angle: 0 };
+  const portalCells = shuffle(candidates.filter((cell) =>
+    !fish.some((item) => Math.floor(item.x) === cell.x && Math.floor(item.y) === cell.y),
+  )).slice(0, 2);
+  portals = portalCells.map((cell, index) => ({
+    x: cell.x + 0.5,
+    y: cell.y + 0.5,
+    color: index ? "#6ee7ff" : "#ff76c8",
+  }));
+  player = { x: 1.5, y: 1.5, facingX: 1, facingY: 0 };
   steps = 0;
   startedAt = 0;
   won = false;
   surpriseTriggered = false;
+  paletteIndex = 0;
+  portalCooldown = 0;
   stepsElement.textContent = "0";
   fishCount.textContent = "0";
   fishTotal.textContent = String(fish.length);
-  objective.textContent = "Find the moon mouse";
+  objective.textContent = "Catch the moon mouse";
   endScreen.hidden = true;
   game.dataset.state = playing ? "playing" : "intro";
 }
@@ -131,48 +142,69 @@ function isWall(x, y) {
 }
 
 function canStand(x, y) {
-  const radius = 0.19;
+  const radius = 0.2;
   return !isWall(x - radius, y - radius) && !isWall(x + radius, y - radius) &&
     !isWall(x - radius, y + radius) && !isWall(x + radius, y + radius);
 }
 
-function movePlayer(forward, strafe, turn, delta) {
-  player.angle += turn * delta * 2.05;
-  const boost = performance.now() < dashUntil ? 2 : 1;
-  const speed = delta * 2.05 * boost;
-  const dx = (Math.cos(player.angle) * forward + Math.cos(player.angle + Math.PI / 2) * strafe) * speed;
-  const dy = (Math.sin(player.angle) * forward + Math.sin(player.angle + Math.PI / 2) * strafe) * speed;
+function movePlayer(horizontal, vertical, delta) {
+  const length = Math.hypot(horizontal, vertical);
+  if (length > 1) {
+    horizontal /= length;
+    vertical /= length;
+  }
+  if (Math.hypot(horizontal, vertical) < 0.08) return;
+
+  const boost = performance.now() < dashUntil ? 2.1 : 1;
+  const distance = delta * 2.15 * boost;
+  const dx = horizontal * distance;
+  const dy = vertical * distance;
   const oldX = player.x;
   const oldY = player.y;
   if (canStand(player.x + dx, player.y)) player.x += dx;
   if (canStand(player.x, player.y + dy)) player.y += dy;
   const travelled = Math.hypot(player.x - oldX, player.y - oldY);
-  if (travelled > 0) {
-    steps += travelled;
-    stepsElement.textContent = String(Math.floor(steps * 2));
-    if (!startedAt) startedAt = Date.now();
-    collectNearby();
-  }
+  if (!travelled) return;
+
+  player.facingX = horizontal;
+  player.facingY = vertical;
+  steps += travelled;
+  stepsElement.textContent = String(Math.floor(steps * 2));
+  if (!startedAt) startedAt = Date.now();
+  collectNearby();
+  usePortal();
 }
 
 function collectNearby() {
   fish.forEach((item) => {
-    if (!item.found && Math.hypot(player.x - item.x, player.y - item.y) < 0.48) {
+    if (!item.found && Math.hypot(player.x - item.x, player.y - item.y) < 0.46) {
       item.found = true;
       const count = fish.filter(({ found }) => found).length;
       fishCount.textContent = String(count);
-      showToast(count === fish.length ? "🐟 Every snack found! Legendary whiskers." : "🐟 Pocket fish acquired");
+      showToast(count === fish.length ? "🐟 Full snack pouch! Now pounce." : "🐟 Pocket fish acquired");
       if (count === 3 && !surpriseTriggered) triggerSurprise();
     }
   });
-  if (!won && Math.hypot(player.x - mouse.x, player.y - mouse.y) < 0.52) finishGame();
+  if (!won && Math.hypot(player.x - mouse.x, player.y - mouse.y) < 0.5) finishGame();
 }
 
 function triggerSurprise() {
   surpriseTriggered = true;
+  paletteIndex = 1 + Math.floor(Math.random() * (palettes.length - 1));
   mouse.emoji = "🦄";
-  showToast("✨ Plot twist: that mouse is wearing a unicorn hat!");
-  objective.textContent = "Catch the suspicious unicorn mouse";
+  objective.textContent = "Catch the extremely normal mouse";
+  showToast("✨ The moon sneezed! Secret portals woke up.");
+}
+
+function usePortal() {
+  if (!surpriseTriggered || performance.now() < portalCooldown || portals.length < 2) return;
+  const entrance = portals.findIndex((portal) => Math.hypot(player.x - portal.x, player.y - portal.y) < 0.38);
+  if (entrance < 0) return;
+  const exit = portals[1 - entrance];
+  player.x = exit.x;
+  player.y = exit.y;
+  portalCooldown = performance.now() + 1100;
+  showToast("🌀 Whisker wormhole!");
 }
 
 function finishGame() {
@@ -198,11 +230,8 @@ function showToast(message) {
 
 function sniff() {
   if (!playing || won) return;
-  sniffUntil = performance.now() + 2800;
-  const angle = angleTo(mouse.x, mouse.y);
-  const difference = normalizeAngle(angle - player.angle);
-  const direction = Math.abs(difference) < 0.45 ? "straight ahead" : difference > 0 ? "to your right" : "to your left";
-  showToast(`👃 Squeak detected ${direction}! Follow the pink glow.`);
+  sniffUntil = performance.now() + 3000;
+  showToast("👃 Moon-scent trail revealed!");
 }
 
 function dash() {
@@ -213,142 +242,262 @@ function dash() {
   showToast("⚡ Midnight zoomies!");
 }
 
-function normalizeAngle(angle) {
-  while (angle > Math.PI) angle -= Math.PI * 2;
-  while (angle < -Math.PI) angle += Math.PI * 2;
-  return angle;
+function layout() {
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  const controlsSpace = Math.min(155, height * 0.2);
+  const availableHeight = Math.max(280, height - controlsSpace - 70);
+  const tileWidth = Math.max(24, Math.min(width / (MAP_SIZE + 1.8), availableHeight / (MAP_SIZE * 0.52 + 1.8)));
+  const tileHeight = tileWidth * 0.52;
+  const boardHeight = MAP_SIZE * tileHeight;
+  return {
+    width,
+    height,
+    tileWidth,
+    tileHeight,
+    wallHeight: tileWidth * 0.48,
+    originX: width / 2,
+    originY: Math.max(76, (availableHeight - boardHeight) / 2 + 64),
+  };
 }
 
-function angleTo(x, y) {
-  return Math.atan2(y - player.y, x - player.x);
+function project(x, y, board) {
+  return {
+    x: board.originX + (x - y) * board.tileWidth / 2,
+    y: board.originY + (x + y) * board.tileHeight / 2,
+  };
 }
 
-function castRay(angle) {
-  const rayX = Math.cos(angle);
-  const rayY = Math.sin(angle);
-  let mapX = Math.floor(player.x);
-  let mapY = Math.floor(player.y);
-  const deltaX = Math.abs(1 / (rayX || 0.00001));
-  const deltaY = Math.abs(1 / (rayY || 0.00001));
-  const stepX = rayX < 0 ? -1 : 1;
-  const stepY = rayY < 0 ? -1 : 1;
-  let sideX = rayX < 0 ? (player.x - mapX) * deltaX : (mapX + 1 - player.x) * deltaX;
-  let sideY = rayY < 0 ? (player.y - mapY) * deltaY : (mapY + 1 - player.y) * deltaY;
-  let side = 0;
-  while (map[mapY]?.[mapX] === 0) {
-    if (sideX < sideY) {
-      sideX += deltaX;
-      mapX += stepX;
-      side = 0;
-    } else {
-      sideY += deltaY;
-      mapY += stepY;
-      side = 1;
-    }
-  }
-  const distance = side === 0
-    ? (mapX - player.x + (1 - stepX) / 2) / rayX
-    : (mapY - player.y + (1 - stepY) / 2) / rayY;
-  const hit = side === 0 ? player.y + distance * rayY : player.x + distance * rayX;
-  return { distance: Math.max(0.01, distance), side, texture: hit - Math.floor(hit), mapX, mapY };
+function diamond(x, y, board, fill) {
+  const halfWidth = board.tileWidth / 2;
+  const halfHeight = board.tileHeight / 2;
+  context.beginPath();
+  context.moveTo(x, y - halfHeight);
+  context.lineTo(x + halfWidth, y);
+  context.lineTo(x, y + halfHeight);
+  context.lineTo(x - halfWidth, y);
+  context.closePath();
+  context.fillStyle = fill;
+  context.fill();
 }
 
-function drawWorld(now) {
-  const width = canvas.width;
-  const height = canvas.height;
-  const horizon = height * 0.47;
-  const sky = context.createLinearGradient(0, 0, 0, horizon);
-  sky.addColorStop(0, "#11152f");
-  sky.addColorStop(1, "#4f396b");
-  context.fillStyle = sky;
-  context.fillRect(0, 0, width, horizon);
-  const floor = context.createLinearGradient(0, horizon, 0, height);
-  floor.addColorStop(0, "#332a45");
-  floor.addColorStop(1, "#100e1c");
-  context.fillStyle = floor;
-  context.fillRect(0, horizon, width, height - horizon);
+function drawWall(x, y, board, palette) {
+  const center = project(x + 0.5, y + 0.5, board);
+  const halfWidth = board.tileWidth / 2;
+  const halfHeight = board.tileHeight / 2;
+  const raisedY = center.y - board.wallHeight;
 
-  context.fillStyle = "rgba(255,255,255,.22)";
-  for (let star = 0; star < 35; star += 1) {
-    const x = (star * 193 + 41) % width;
-    const y = (star * 71 + 29) % Math.max(1, horizon * 0.8);
-    context.fillRect(x, y, 1.5, 1.5);
-  }
+  context.beginPath();
+  context.moveTo(center.x - halfWidth, center.y);
+  context.lineTo(center.x, center.y + halfHeight);
+  context.lineTo(center.x, raisedY + halfHeight);
+  context.lineTo(center.x - halfWidth, raisedY);
+  context.closePath();
+  context.fillStyle = palette.left;
+  context.fill();
 
-  const columns = Math.min(width, 720);
-  const columnWidth = width / columns;
-  const depthBuffer = new Array(columns);
-  for (let column = 0; column < columns; column += 1) {
-    const camera = (column / columns - 0.5) * FOV;
-    const ray = castRay(player.angle + camera);
-    const distance = ray.distance * Math.cos(camera);
-    depthBuffer[column] = distance;
-    const wallHeight = Math.min(height * 1.8, height / distance);
-    const top = horizon - wallHeight / 2;
-    const color = WALL_COLORS[Math.abs(ray.mapX + ray.mapY * 3) % WALL_COLORS.length];
-    const shade = Math.max(0.28, 1 - distance / 18) * (ray.side ? 0.77 : 1);
-    const mortar = ray.texture < 0.045 || ray.texture > 0.955;
-    context.fillStyle = mortar ? `rgb(${color.map((value) => Math.round(value * shade * 0.48)).join(",")})`
-      : `rgb(${color.map((value) => Math.round(value * shade)).join(",")})`;
-    context.fillRect(column * columnWidth, top, columnWidth + 1, wallHeight);
-    context.fillStyle = `rgba(255,255,255,${Math.max(0, 0.06 - distance * 0.003)})`;
-    context.fillRect(column * columnWidth, top, columnWidth + 1, Math.max(1, wallHeight * 0.018));
-  }
+  context.beginPath();
+  context.moveTo(center.x + halfWidth, center.y);
+  context.lineTo(center.x, center.y + halfHeight);
+  context.lineTo(center.x, raisedY + halfHeight);
+  context.lineTo(center.x + halfWidth, raisedY);
+  context.closePath();
+  context.fillStyle = palette.right;
+  context.fill();
+  diamond(center.x, raisedY, board, palette.top);
 
-  const sprites = fish.filter(({ found }) => !found).map((item) => ({ ...item, emoji: "🐟", scale: 0.72 }))
-    .concat([{ ...mouse, scale: 1.02 }])
-    .sort((a, b) => Math.hypot(player.x - b.x, player.y - b.y) - Math.hypot(player.x - a.x, player.y - a.y));
-  sprites.forEach((sprite) => drawSprite(sprite, depthBuffer, columns, now));
-
-  if (performance.now() < sniffUntil) {
-    const glow = context.createRadialGradient(width / 2, horizon, 10, width / 2, horizon, width * 0.45);
-    glow.addColorStop(0, "rgba(255,125,156,.18)");
-    glow.addColorStop(1, "rgba(255,125,156,0)");
-    context.fillStyle = glow;
-    context.fillRect(0, 0, width, height);
-  }
+  context.strokeStyle = "rgba(255,255,255,.12)";
+  context.lineWidth = 1;
+  context.beginPath();
+  context.moveTo(center.x, raisedY - halfHeight);
+  context.lineTo(center.x + halfWidth, raisedY);
+  context.stroke();
 }
 
-function drawSprite(sprite, depthBuffer, columns, now) {
-  const dx = sprite.x - player.x;
-  const dy = sprite.y - player.y;
-  const distance = Math.hypot(dx, dy);
-  const relative = normalizeAngle(Math.atan2(dy, dx) - player.angle);
-  if (Math.abs(relative) > FOV * 0.72 || distance < 0.18) return;
-  const screenX = canvas.width * (0.5 + relative / FOV);
-  const size = Math.min(canvas.height * 0.72, canvas.height / distance * sprite.scale);
-  const column = Math.floor(screenX / canvas.width * columns);
-  if (depthBuffer[column] < distance - 0.35) return;
-  const bob = Math.sin(now / 320 + (sprite.phase || 0)) * size * 0.055;
+function drawPortal(portal, board, now) {
+  const point = project(portal.x, portal.y, board);
+  const pulse = 0.72 + Math.sin(now / 180) * 0.14;
   context.save();
-  context.textAlign = "center";
-  context.textBaseline = "middle";
-  context.font = `${Math.max(18, size)}px system-ui`;
-  context.shadowColor = sprite.emoji === "🐟" ? "#ffd166" : "#ff7d9c";
-  context.shadowBlur = Math.max(10, size * (performance.now() < sniffUntil ? 0.42 : 0.2));
-  context.fillText(sprite.emoji, screenX, canvas.height * 0.48 + size * 0.17 + bob);
+  context.translate(point.x, point.y - board.tileHeight * 0.18);
+  context.scale(1, 0.48);
+  context.strokeStyle = portal.color;
+  context.lineWidth = Math.max(2, board.tileWidth * 0.08);
+  context.shadowColor = portal.color;
+  context.shadowBlur = 16;
+  context.beginPath();
+  context.arc(0, 0, board.tileWidth * 0.31 * pulse, 0, Math.PI * 1.65);
+  context.stroke();
   context.restore();
 }
 
+function drawEmoji(item, emoji, board, now, scale = 0.58) {
+  const point = project(item.x, item.y, board);
+  const bob = Math.sin(now / 260 + (item.phase || 0)) * board.tileHeight * 0.12;
+  context.save();
+  context.textAlign = "center";
+  context.textBaseline = "bottom";
+  context.font = `${Math.max(18, board.tileWidth * scale)}px system-ui`;
+  context.shadowColor = emoji === "🐟" ? "#ffd166" : "#ff7d9c";
+  context.shadowBlur = 9;
+  context.fillText(emoji, point.x, point.y - board.tileHeight * 0.1 + bob);
+  context.restore();
+}
+
+function drawCat(board, now) {
+  const point = project(player.x, player.y, board);
+  const size = board.tileWidth * 0.54;
+  const moving = Object.values(keys).some(Boolean) || Math.hypot(stick.x, stick.y) > 0.08;
+  const bounce = moving ? Math.sin(now / 90) * board.tileHeight * 0.08 : 0;
+  const screenFacing = player.facingX - player.facingY;
+  context.save();
+  context.translate(point.x, point.y - size * 0.5 + bounce);
+  context.scale(screenFacing < 0 ? -1 : 1, 1);
+  context.shadowColor = "rgba(20,10,35,.55)";
+  context.shadowBlur = 8;
+
+  context.strokeStyle = "#b8522f";
+  context.lineWidth = size * 0.12;
+  context.lineCap = "round";
+  context.beginPath();
+  context.arc(-size * 0.25, size * 0.2, size * 0.42, 0.2, Math.PI * 1.3);
+  context.stroke();
+
+  context.fillStyle = "#f28b42";
+  context.beginPath();
+  context.ellipse(0, size * 0.18, size * 0.34, size * 0.28, 0, 0, Math.PI * 2);
+  context.fill();
+  context.beginPath();
+  context.moveTo(-size * 0.31, -size * 0.14);
+  context.lineTo(-size * 0.24, -size * 0.48);
+  context.lineTo(-size * 0.05, -size * 0.29);
+  context.lineTo(size * 0.2, -size * 0.46);
+  context.lineTo(size * 0.3, -size * 0.12);
+  context.arc(0, -size * 0.1, size * 0.31, -0.1, Math.PI + 0.2, true);
+  context.fill();
+
+  context.fillStyle = "#fff4d8";
+  context.beginPath();
+  context.ellipse(size * 0.03, -size * 0.02, size * 0.2, size * 0.15, 0, 0, Math.PI * 2);
+  context.fill();
+  context.fillStyle = "#272038";
+  context.beginPath();
+  context.arc(-size * 0.1, -size * 0.15, size * 0.035, 0, Math.PI * 2);
+  context.arc(size * 0.12, -size * 0.15, size * 0.035, 0, Math.PI * 2);
+  context.fill();
+  context.fillStyle = "#df536d";
+  context.beginPath();
+  context.moveTo(-size * 0.03, -size * 0.04);
+  context.lineTo(size * 0.07, -size * 0.04);
+  context.lineTo(size * 0.02, size * 0.03);
+  context.closePath();
+  context.fill();
+  context.restore();
+}
+
+function findPath() {
+  const start = { x: Math.floor(player.x), y: Math.floor(player.y) };
+  const goal = { x: Math.floor(mouse.x), y: Math.floor(mouse.y) };
+  const queue = [start];
+  const previous = new Map([[`${start.x},${start.y}`, null]]);
+  for (let index = 0; index < queue.length; index += 1) {
+    const current = queue[index];
+    if (current.x === goal.x && current.y === goal.y) break;
+    directions.forEach(({ row, col }) => {
+      const next = { x: current.x + col, y: current.y + row };
+      const key = `${next.x},${next.y}`;
+      if (map[next.y]?.[next.x] === 0 && !previous.has(key)) {
+        previous.set(key, current);
+        queue.push(next);
+      }
+    });
+  }
+  const path = [];
+  let current = goal;
+  while (current && previous.has(`${current.x},${current.y}`)) {
+    path.push(current);
+    current = previous.get(`${current.x},${current.y}`);
+  }
+  return path.reverse();
+}
+
+function drawScentTrail(board, now) {
+  if (now >= sniffUntil) return;
+  const path = findPath().slice(1);
+  context.save();
+  context.fillStyle = "#ff77bd";
+  context.shadowColor = "#ff77bd";
+  context.shadowBlur = 10;
+  path.forEach((cell, index) => {
+    if (index % 2) return;
+    const point = project(cell.x + 0.5, cell.y + 0.5, board);
+    const pulse = 0.7 + Math.sin(now / 150 + index) * 0.25;
+    context.globalAlpha = Math.max(0.2, 0.9 - index / path.length * 0.55);
+    context.beginPath();
+    context.arc(point.x, point.y - board.tileHeight * 0.12, Math.max(2, board.tileWidth * 0.06 * pulse), 0, Math.PI * 2);
+    context.fill();
+  });
+  context.restore();
+}
+
+function drawWorld(now) {
+  const board = layout();
+  const palette = palettes[paletteIndex];
+  const background = context.createLinearGradient(0, 0, 0, board.height);
+  background.addColorStop(0, "#171936");
+  background.addColorStop(1, "#0c0c1c");
+  context.fillStyle = background;
+  context.fillRect(0, 0, board.width, board.height);
+
+  context.fillStyle = "rgba(255,255,255,.38)";
+  for (let star = 0; star < 42; star += 1) {
+    const x = (star * 193 + 41) % board.width;
+    const y = (star * 71 + 29) % board.height;
+    context.fillRect(x, y, star % 4 ? 1 : 2, star % 4 ? 1 : 2);
+  }
+
+  for (let depth = 0; depth <= (MAP_SIZE - 1) * 2; depth += 1) {
+    for (let y = 0; y < MAP_SIZE; y += 1) {
+      const x = depth - y;
+      if (x < 0 || x >= MAP_SIZE) continue;
+      const center = project(x + 0.5, y + 0.5, board);
+      diamond(center.x, center.y, board, (x + y) % 2 ? palette.floorAlt : palette.floor);
+      if (map[y][x] === 1) drawWall(x, y, board, palette);
+    }
+    fish.filter((item) => !item.found && Math.floor(item.x) + Math.floor(item.y) === depth)
+      .forEach((item) => drawEmoji(item, "🐟", board, now));
+    if (Math.floor(mouse.x) + Math.floor(mouse.y) === depth) drawEmoji(mouse, mouse.emoji, board, now, 0.66);
+    if (surpriseTriggered) {
+      portals.filter((portal) => Math.floor(portal.x) + Math.floor(portal.y) === depth)
+        .forEach((portal) => drawPortal(portal, board, now));
+    }
+  }
+  drawScentTrail(board, now);
+  drawCat(board, now);
+}
+
 function resize() {
-  const scale = Math.min(window.devicePixelRatio || 1, 1.5);
+  const scale = Math.min(window.devicePixelRatio || 1, 1.75);
   canvas.width = Math.round(innerWidth * scale);
   canvas.height = Math.round(innerHeight * scale);
+  context.setTransform(scale, 0, 0, scale, 0, 0);
 }
 
 function updateCompass() {
-  const difference = normalizeAngle(angleTo(mouse.x, mouse.y) - player.angle);
-  compass.style.transform = `rotate(${difference}rad)`;
+  const dx = mouse.x - player.x;
+  const dy = mouse.y - player.y;
+  const angle = Math.atan2((dx + dy) * 0.52, dx - dy) + Math.PI / 2;
+  compass.style.transform = `rotate(${angle}rad)`;
 }
 
 function frame(now) {
   const delta = Math.min(0.04, (now - lastFrame) / 1000);
   lastFrame = now;
   if (playing && !won) {
-    const forward = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0) - stick.y;
-    const strafe = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
-    const turn = (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0) + stick.x;
-    movePlayer(forward, strafe, turn, delta);
+    const horizontal = (keys.KeyD || keys.ArrowRight ? 1 : 0) -
+      (keys.KeyA || keys.ArrowLeft ? 1 : 0) + stick.x;
+    const vertical = (keys.KeyS || keys.ArrowDown ? 1 : 0) -
+      (keys.KeyW || keys.ArrowUp ? 1 : 0) + stick.y;
+    movePlayer(horizontal, vertical, delta);
     updateCompass();
   }
   drawWorld(now);
@@ -359,14 +508,14 @@ function begin() {
   intro.hidden = true;
   playing = true;
   game.dataset.state = "playing";
-  showToast("🐾 The moon mouse is somewhere ahead…");
+  showToast("🐾 The moon mouse is hiding on the board…");
 }
 
 function restart() {
   playing = true;
   intro.hidden = true;
   resetGame();
-  showToast("🌙 The maze shuffled while you blinked.");
+  showToast("🌙 The board shuffled while you blinked.");
 }
 
 function updateStick(event) {
@@ -396,18 +545,6 @@ function releaseStick() {
 }
 joystick.addEventListener("pointerup", releaseStick);
 joystick.addEventListener("pointercancel", releaseStick);
-
-canvas.addEventListener("pointerdown", (event) => {
-  dragLook = { pointerId: event.pointerId, x: event.clientX };
-  canvas.setPointerCapture(event.pointerId);
-});
-canvas.addEventListener("pointermove", (event) => {
-  if (!dragLook || dragLook.pointerId !== event.pointerId || !playing) return;
-  player.angle += (event.clientX - dragLook.x) * 0.007;
-  dragLook.x = event.clientX;
-});
-canvas.addEventListener("pointerup", () => { dragLook = undefined; });
-canvas.addEventListener("pointercancel", () => { dragLook = undefined; });
 
 document.addEventListener("keydown", (event) => {
   keys[event.code] = true;
