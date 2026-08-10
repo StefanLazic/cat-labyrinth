@@ -2,54 +2,62 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#171b2d">
-    <meta name="description" content="Help Mochi the cat find the mouse through a new maze every game.">
-    <title>Cat Labyrinth</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+    <meta name="theme-color" content="#100f20">
+    <meta name="description" content="Guide Mochi through a tiny, surprising 3D labyrinth.">
+    <title>Mochi's Midnight Maze</title>
     <link rel="stylesheet" href="style.css">
     <script src="game.js" defer></script>
   </head>
   <body>
-    <main class="game-shell">
-      <header class="top-bar">
-        <div>
-          <p class="eyebrow">A tiny maze adventure</p>
-          <h1>Cat Labyrinth</h1>
+    <main id="game" data-state="intro">
+      <canvas id="maze" aria-label="First-person 3D cat labyrinth"></canvas>
+      <div class="vignette" aria-hidden="true"></div>
+
+      <header class="hud" aria-label="Game status">
+        <div class="brand"><span>MOCHI'S</span><strong>Midnight Maze</strong></div>
+        <div class="objective"><span id="objective">Find the moon mouse</span><b id="compass" aria-hidden="true">▲</b></div>
+        <div class="stats">
+          <span>🐟 <b id="fish-count">0</b>/<b id="fish-total">0</b></span>
+          <span>🐾 <b id="steps">0</b></span>
         </div>
-        <button id="new-game" class="icon-button" type="button" aria-label="Start a new maze" title="New maze">↻</button>
+        <button id="new-game" class="small-button" type="button" aria-label="Restart maze">↻</button>
       </header>
 
-      <section class="status-bar" aria-label="Game status">
-        <div class="status-item"><span>Time</span><strong id="timer">0:00</strong></div>
-        <p id="message" aria-live="polite">Help Mochi find the mouse!</p>
-        <div class="status-item status-item--right"><span>Steps</span><strong id="steps">0</strong></div>
-      </section>
+      <div id="toast" class="toast" aria-live="polite"></div>
+      <div class="crosshair" aria-hidden="true">•</div>
 
-      <section class="board-wrap" aria-label="Maze">
-        <canvas id="maze" role="img" aria-label="A maze containing a cat and a mouse"></canvas>
-      </section>
-
-      <section class="controls" aria-label="Movement controls">
-        <p>Swipe the maze or use the paw pad</p>
-        <div class="d-pad">
-          <button class="move up" type="button" data-direction="up" aria-label="Move up">▲</button>
-          <button class="move left" type="button" data-direction="left" aria-label="Move left">◀</button>
-          <div class="paw" aria-hidden="true">🐾</div>
-          <button class="move right" type="button" data-direction="right" aria-label="Move right">▶</button>
-          <button class="move down" type="button" data-direction="down" aria-label="Move down">▼</button>
+      <section class="touch-controls" aria-label="Touch controls">
+        <div id="joystick" class="joystick" aria-label="Drag to walk and turn">
+          <span class="joystick-arrows" aria-hidden="true">↖ ↑ ↗<br>← 🐾 →<br>↙ ↓ ↘</span>
+          <span id="joystick-knob" class="joystick-knob"></span>
         </div>
-        <p class="keyboard-hint">Arrow keys and WASD work too</p>
+        <div class="actions">
+          <button id="dash" class="action dash" type="button" aria-label="Dash"><span>⚡</span><small>Zoom</small></button>
+          <button id="sniff" class="action sniff" type="button" aria-label="Sniff for the mouse"><span>👃</span><small>Sniff</small></button>
+        </div>
+      </section>
+
+      <section id="intro" class="screen">
+        <div class="card">
+          <p class="eyebrow">A tiny 3D adventure</p>
+          <div class="hero" aria-hidden="true">🐈‍⬛ <span>🌙</span> 🐭</div>
+          <h1>Mochi's<br><em>Midnight Maze</em></h1>
+          <p>The moon mouse stole your bedtime snack. Follow the squeaks, collect fish, and expect the maze to misbehave.</p>
+          <button id="start" class="primary" type="button">Enter the maze</button>
+          <p class="control-hint"><span>WASD / arrows · Shift to zoom · F to sniff</span><span>Touch stick · Zoom · Sniff</span></p>
+        </div>
+      </section>
+
+      <section id="end" class="screen" hidden>
+        <div class="card">
+          <p class="eyebrow">Mouse located!</p>
+          <div class="hero" aria-hidden="true">🐱 💫 🐭</div>
+          <h2 id="end-title">A purrfect pursuit</h2>
+          <p id="result"></p>
+          <button id="play-again" class="primary" type="button">Chase another mouse</button>
+        </div>
       </section>
     </main>
-
-    <div id="win-dialog" class="dialog-backdrop" hidden>
-      <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="win-title">
-        <div class="celebration" aria-hidden="true">🐱 💛 🐭</div>
-        <p class="eyebrow">Maze complete</p>
-        <h2 id="win-title">You found the mouse!</h2>
-        <p id="result">Mochi made it!</p>
-        <button id="play-again" type="button">Play another maze</button>
-      </section>
-    </div>
   </body>
 </html>
