@@ -1,121 +1,197 @@
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js";
-
 const canvas = document.querySelector("#cat-layer");
-const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
-renderer.setClearColor(0x000000, 0);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
-renderer.outputColorSpace = THREE.SRGBColorSpace;
+const gl = canvas.getContext("webgl", { alpha: true, antialias: true });
 
-const scene = new THREE.Scene();
-const camera = new THREE.OrthographicCamera(0, innerWidth, innerHeight, 0, 1, 2000);
-camera.position.z = 1000;
+if (gl) {
+  const vertexShader = `
+    attribute vec3 position;
+    attribute vec3 normal;
+    uniform mat4 model;
+    uniform vec2 resolution;
+    varying vec3 surfaceNormal;
+    void main() {
+      vec4 world = model * vec4(position, 1.0);
+      gl_Position = vec4(world.x / resolution.x * 2.0 - 1.0,
+        1.0 - world.y / resolution.y * 2.0, -world.z / 1000.0, 1.0);
+      surfaceNormal = normalize(mat3(model) * normal);
+    }
+  `;
+  const fragmentShader = `
+    precision mediump float;
+    uniform vec3 color;
+    uniform float opacity;
+    varying vec3 surfaceNormal;
+    void main() {
+      vec3 light = normalize(vec3(-0.4, -0.7, 1.0));
+      float shade = 0.64 + max(dot(normalize(surfaceNormal), light), 0.0) * 0.42;
+      gl_FragColor = vec4(color * shade, opacity);
+    }
+  `;
 
-scene.add(new THREE.HemisphereLight(0xfff4d8, 0x3d285f, 2.4));
-const keyLight = new THREE.DirectionalLight(0xffffff, 3.2);
-keyLight.position.set(-3, 6, 8);
-scene.add(keyLight);
+  function compile(type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    return shader;
+  }
 
-const cat = new THREE.Group();
-scene.add(cat);
+  const program = gl.createProgram();
+  gl.attachShader(program, compile(gl.VERTEX_SHADER, vertexShader));
+  gl.attachShader(program, compile(gl.FRAGMENT_SHADER, fragmentShader));
+  gl.linkProgram(program);
+  gl.useProgram(program);
 
-const orange = new THREE.MeshStandardMaterial({ color: 0xf28b42, roughness: 0.72 });
-const darkOrange = new THREE.MeshStandardMaterial({ color: 0xb8522f, roughness: 0.8 });
-const cream = new THREE.MeshStandardMaterial({ color: 0xfff4d8, roughness: 0.65 });
-const charcoal = new THREE.MeshStandardMaterial({ color: 0x272038, roughness: 0.55 });
-const pink = new THREE.MeshStandardMaterial({ color: 0xdf536d, roughness: 0.65 });
+  const locations = {
+    position: gl.getAttribLocation(program, "position"),
+    normal: gl.getAttribLocation(program, "normal"),
+    model: gl.getUniformLocation(program, "model"),
+    resolution: gl.getUniformLocation(program, "resolution"),
+    color: gl.getUniformLocation(program, "color"),
+    opacity: gl.getUniformLocation(program, "opacity"),
+  };
 
-function mesh(geometry, material, position, parent = cat) {
-  const part = new THREE.Mesh(geometry, material);
-  part.position.set(...position);
-  parent.add(part);
-  return part;
+  function makeSphere(rows = 12, columns = 18) {
+    const vertices = [];
+    const indices = [];
+    for (let row = 0; row <= rows; row += 1) {
+      const vertical = row / rows * Math.PI;
+      for (let column = 0; column <= columns; column += 1) {
+        const horizontal = column / columns * Math.PI * 2;
+        vertices.push(
+          Math.sin(vertical) * Math.cos(horizontal),
+          Math.cos(vertical),
+          Math.sin(vertical) * Math.sin(horizontal),
+        );
+      }
+    }
+    for (let row = 0; row < rows; row += 1) {
+      for (let column = 0; column < columns; column += 1) {
+        const first = row * (columns + 1) + column;
+        const second = first + columns + 1;
+        indices.push(first, second, first + 1, second, second + 1, first + 1);
+      }
+    }
+    return { vertices, indices };
+  }
+
+  function makeCone(segments = 16) {
+    const vertices = [0, -1, 0, 0, 1, 0];
+    const indices = [];
+    for (let index = 0; index < segments; index += 1) {
+      const angle = index / segments * Math.PI * 2;
+      vertices.push(Math.cos(angle), 1, Math.sin(angle));
+    }
+    for (let index = 0; index < segments; index += 1) {
+      const next = (index + 1) % segments;
+      indices.push(0, index + 2, next + 2, 1, next + 2, index + 2);
+    }
+    return { vertices, indices };
+  }
+
+  function upload(shape) {
+    const normals = [];
+    for (let index = 0; index < shape.vertices.length; index += 3) {
+      const x = shape.vertices[index];
+      const y = shape.vertices[index + 1];
+      const z = shape.vertices[index + 2];
+      const length = Math.hypot(x, y, z) || 1;
+      normals.push(x / length, y / length, z / length);
+    }
+    const vertexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(shape.vertices), gl.STATIC_DRAW);
+    const normalBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals), gl.STATIC_DRAW);
+    const indexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(shape.indices), gl.STATIC_DRAW);
+    return { vertexBuffer, normalBuffer, indexBuffer, count: shape.indices.length };
+  }
+
+  const sphere = upload(makeSphere());
+  const cone = upload(makeCone());
+  const orange = [0.949, 0.545, 0.259];
+  const darkOrange = [0.722, 0.322, 0.184];
+  const cream = [1, 0.957, 0.847];
+  const charcoal = [0.153, 0.125, 0.22];
+  const pink = [0.875, 0.325, 0.427];
+
+  function matrix(x, y, z, sx, sy, sz, turn = 0, tilt = 0) {
+    const cosine = Math.cos(turn);
+    const sine = Math.sin(turn);
+    const leanCosine = Math.cos(tilt);
+    const leanSine = Math.sin(tilt);
+    return new Float32Array([
+      cosine * sx, leanSine * sine * sx, -leanCosine * sine * sx, 0,
+      0, leanCosine * sy, leanSine * sy, 0,
+      sine * sz, -leanSine * cosine * sz, leanCosine * cosine * sz, 0,
+      x, y, z, 1,
+    ]);
+  }
+
+  function draw(shape, transform, color, opacity = 1) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, shape.vertexBuffer);
+    gl.enableVertexAttribArray(locations.position);
+    gl.vertexAttribPointer(locations.position, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, shape.normalBuffer);
+    gl.enableVertexAttribArray(locations.normal);
+    gl.vertexAttribPointer(locations.normal, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, shape.indexBuffer);
+    gl.uniformMatrix4fv(locations.model, false, transform);
+    gl.uniform3fv(locations.color, color);
+    gl.uniform1f(locations.opacity, opacity);
+    gl.drawElements(gl.TRIANGLES, shape.count, gl.UNSIGNED_SHORT, 0);
+  }
+
+  function resize() {
+    const scale = Math.min(window.devicePixelRatio || 1, 1.75);
+    canvas.width = Math.round(innerWidth * scale);
+    canvas.height = Math.round(innerHeight * scale);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.uniform2f(locations.resolution, innerWidth, innerHeight);
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.enable(gl.DEPTH_TEST);
+
+  window.cat3D = {
+    render(player, board, now, moving) {
+      const x = board.originX + (player.x - player.y) * board.tileWidth / 2;
+      const ground = board.originY + (player.x + player.y) * board.tileHeight / 2;
+      const size = board.tileWidth * 0.5;
+      const stride = moving ? Math.sin(now / 90) : 0;
+      const bob = Math.abs(stride) * size * 0.035;
+      const facing = (player.facingX - player.facingY < 0 ? -1 : 1) * 0.24;
+
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+      draw(sphere, matrix(x, ground, -20, size * 0.43, size * 0.1, size * 0.34), charcoal, 0.38);
+      draw(sphere, matrix(x - size * 0.34, ground - size * 0.66 + bob, 0, size * 0.12, size * 0.42, size * 0.12, facing, 0.45), darkOrange);
+      draw(sphere, matrix(x, ground - size * 0.6 + bob, 0, size * 0.34, size * 0.43, size * 0.27, facing), orange);
+      draw(sphere, matrix(x, ground - size * 0.6 + bob, 12, size * 0.2, size * 0.27, size * 0.08, facing), cream);
+
+      for (const side of [-1, 1]) {
+        draw(sphere, matrix(x + side * size * 0.19, ground - size * 0.2 + bob,
+          5, size * 0.09, size * 0.28, size * 0.1, facing, side * stride * 0.18), orange);
+        draw(sphere, matrix(x + side * size * 0.2, ground - size * 0.02 + bob,
+          14, size * 0.12, size * 0.08, size * 0.13, facing), cream);
+      }
+
+      draw(sphere, matrix(x, ground - size * 1.18 + bob, 4, size * 0.34, size * 0.31, size * 0.3, facing), orange);
+      for (const side of [-1, 1]) {
+        draw(cone, matrix(x + side * size * 0.22, ground - size * 1.48 + bob,
+          1, size * 0.16, size * 0.24, size * 0.15, facing, side * -0.16), orange);
+        draw(sphere, matrix(x + side * size * 0.09, ground - size * 1.1 + bob,
+          22, size * 0.13, size * 0.1, size * 0.07, facing), cream);
+        draw(sphere, matrix(x + side * size * 0.12, ground - size * 1.25 + bob,
+          27, size * 0.036, size * 0.05, size * 0.028, facing), charcoal);
+      }
+      draw(cone, matrix(x, ground - size * 1.11 + bob, 29,
+        size * 0.055, size * 0.055, size * 0.04, facing, Math.PI / 2), pink);
+    },
+  };
 }
-
-const body = mesh(new THREE.SphereGeometry(0.38, 24, 16), orange, [0, 0.58, 0]);
-body.scale.set(0.9, 1.18, 0.72);
-
-const chest = mesh(new THREE.SphereGeometry(0.22, 20, 14), cream, [0, 0.62, 0.27]);
-chest.scale.set(0.8, 1.22, 0.36);
-
-const head = mesh(new THREE.SphereGeometry(0.34, 28, 18), orange, [0, 1.15, 0.02]);
-head.scale.set(1, 0.9, 0.92);
-
-function ear(x, angle) {
-  const part = mesh(new THREE.ConeGeometry(0.18, 0.43, 4), orange, [x, 1.48, 0]);
-  part.rotation.z = angle;
-  part.rotation.y = Math.PI / 4;
-  return part;
-}
-ear(-0.21, 0.12);
-ear(0.21, -0.12);
-
-const muzzleLeft = mesh(new THREE.SphereGeometry(0.12, 16, 10), cream, [-0.09, 1.08, 0.29]);
-const muzzleRight = mesh(new THREE.SphereGeometry(0.12, 16, 10), cream, [0.09, 1.08, 0.29]);
-muzzleLeft.scale.z = 0.52;
-muzzleRight.scale.z = 0.52;
-
-for (const x of [-0.13, 0.13]) {
-  const eye = mesh(new THREE.SphereGeometry(0.038, 12, 8), charcoal, [x, 1.24, 0.31]);
-  eye.scale.y = 1.25;
-}
-
-const nose = mesh(new THREE.ConeGeometry(0.055, 0.08, 3), pink, [0, 1.12, 0.405]);
-nose.rotation.x = Math.PI / 2;
-nose.rotation.z = Math.PI;
-
-const legs = [-0.2, 0.2].map((x) => {
-  const leg = mesh(new THREE.CapsuleGeometry(0.09, 0.29, 6, 12), orange, [x, 0.22, 0.05]);
-  mesh(new THREE.SphereGeometry(0.105, 16, 10), cream, [0, -0.22, 0.05], leg)
-    .scale.set(1.15, 0.65, 1.25);
-  return leg;
-});
-
-const tailCurve = new THREE.CatmullRomCurve3([
-  new THREE.Vector3(-0.25, 0.55, -0.1),
-  new THREE.Vector3(-0.55, 0.65, -0.06),
-  new THREE.Vector3(-0.63, 0.98, 0),
-  new THREE.Vector3(-0.48, 1.12, 0.03),
-]);
-const tail = mesh(new THREE.TubeGeometry(tailCurve, 24, 0.075, 10, false), darkOrange, [0, 0, 0]);
-
-const shadowMaterial = new THREE.MeshBasicMaterial({
-  color: 0x120a23,
-  opacity: 0.38,
-  transparent: true,
-  depthWrite: false,
-});
-const shadow = mesh(new THREE.CircleGeometry(0.43, 32), shadowMaterial, [0, 0.04, -0.5]);
-shadow.scale.y = 0.28;
-
-let width = 0;
-let height = 0;
-function resize() {
-  width = innerWidth;
-  height = innerHeight;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
-  renderer.setSize(width, height, false);
-  camera.right = width;
-  camera.top = height;
-  camera.updateProjectionMatrix();
-}
-window.addEventListener("resize", resize);
-resize();
-
-window.cat3D = {
-  render(player, board, now, moving) {
-    const screenX = board.originX + (player.x - player.y) * board.tileWidth / 2;
-    const screenY = board.originY + (player.x + player.y) * board.tileHeight / 2;
-    const stride = moving ? Math.sin(now / 90) : 0;
-    const scale = board.tileWidth * 0.48;
-
-    cat.position.set(screenX, screenY - scale * 0.04 + Math.abs(stride) * scale * 0.035, 0);
-    cat.scale.setScalar(scale);
-    cat.rotation.y = (player.facingX - player.facingY < 0 ? -1 : 1) * 0.24;
-    legs[0].rotation.z = stride * 0.16;
-    legs[1].rotation.z = -stride * 0.16;
-    tail.rotation.z = Math.sin(now / 310) * 0.08;
-    shadow.material.opacity = 0.38 - Math.abs(stride) * 0.08;
-
-    renderer.render(scene, camera);
-  },
-};
