@@ -201,8 +201,8 @@ h1 {
 .right { grid-area: 2 / 3; }
 .down { grid-area: 3 / 2; }
 
-.keyboard-hint {
-  margin-top: -13px !important;
+.controls > .keyboard-hint {
+  margin-top: -13px;
   opacity: 0.65;
 }
 

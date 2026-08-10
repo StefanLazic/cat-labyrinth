@@ -82,9 +82,11 @@ function findFarthestCell() {
   const queue = [{ row: 0, col: 0, distance: 0 }];
   const visited = new Set(["0,0"]);
   let farthest = queue[0];
+  let queueIndex = 0;
 
-  while (queue.length) {
-    const current = queue.shift();
+  while (queueIndex < queue.length) {
+    const current = queue[queueIndex];
+    queueIndex += 1;
     if (current.distance > farthest.distance) farthest = current;
 
     Object.values(directions).forEach((direction) => {
@@ -175,6 +177,7 @@ function drawMouse(x, y, size) {
   context.fillStyle = "#9a91a3";
   context.beginPath();
   context.arc(-size * 0.22, -size * 0.19, size * 0.17, 0, Math.PI * 2);
+  context.moveTo(size * 0.39, -size * 0.19);
   context.arc(size * 0.22, -size * 0.19, size * 0.17, 0, Math.PI * 2);
   context.fill();
   context.fillStyle = "#686071";
@@ -184,6 +187,7 @@ function drawMouse(x, y, size) {
   context.fillStyle = "#fff";
   context.beginPath();
   context.arc(-size * 0.1, -size * 0.02, size * 0.045, 0, Math.PI * 2);
+  context.moveTo(size * 0.145, -size * 0.02);
   context.arc(size * 0.1, -size * 0.02, size * 0.045, 0, Math.PI * 2);
   context.fill();
   context.fillStyle = "#ee7280";
@@ -213,6 +217,7 @@ function drawCat(x, y, size) {
   context.fillStyle = "#3d3748";
   context.beginPath();
   context.arc(-size * 0.12, -size * 0.05, size * 0.045, 0, Math.PI * 2);
+  context.moveTo(size * 0.165, -size * 0.05);
   context.arc(size * 0.12, -size * 0.05, size * 0.045, 0, Math.PI * 2);
   context.fill();
   context.fillStyle = "#d85f69";
