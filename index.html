@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#171b2d">
+    <meta name="description" content="Help Mochi the cat find the mouse through a new maze every game.">
+    <title>Cat Labyrinth</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="game.js" defer></script>
+  </head>
+  <body>
+    <main class="game-shell">
+      <header class="top-bar">
+        <div>
+          <p class="eyebrow">A tiny maze adventure</p>
+          <h1>Cat Labyrinth</h1>
+        </div>
+        <button id="new-game" class="icon-button" type="button" aria-label="Start a new maze" title="New maze">↻</button>
+      </header>
+
+      <section class="status-bar" aria-label="Game status">
+        <div class="status-item"><span>Time</span><strong id="timer">0:00</strong></div>
+        <p id="message" aria-live="polite">Help Mochi find the mouse!</p>
+        <div class="status-item status-item--right"><span>Steps</span><strong id="steps">0</strong></div>
+      </section>
+
+      <section class="board-wrap" aria-label="Maze">
+        <canvas id="maze" role="img" aria-label="A maze containing a cat and a mouse"></canvas>
+      </section>
+
+      <section class="controls" aria-label="Movement controls">
+        <p>Swipe the maze or use the paw pad</p>
+        <div class="d-pad">
+          <button class="move up" type="button" data-direction="up" aria-label="Move up">▲</button>
+          <button class="move left" type="button" data-direction="left" aria-label="Move left">◀</button>
+          <div class="paw" aria-hidden="true">🐾</div>
+          <button class="move right" type="button" data-direction="right" aria-label="Move right">▶</button>
+          <button class="move down" type="button" data-direction="down" aria-label="Move down">▼</button>
+        </div>
+        <p class="keyboard-hint">Arrow keys and WASD work too</p>
+      </section>
+    </main>
+
+    <div id="win-dialog" class="dialog-backdrop" hidden>
+      <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="win-title">
+        <div class="celebration" aria-hidden="true">🐱 💛 🐭</div>
+        <p class="eyebrow">Maze complete</p>
+        <h2 id="win-title">You found the mouse!</h2>
+        <p id="result">Mochi made it!</p>
+        <button id="play-again" type="button">Play another maze</button>
+      </section>
+    </div>
+  </body>
+</html>
