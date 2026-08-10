@@ -472,7 +472,12 @@ function drawWorld(now) {
     }
   }
   drawScentTrail(board, now);
-  drawCat(board, now);
+  if (window.cat3D) {
+    window.cat3D.render(player, board, now, playing && !won &&
+      (Object.values(keys).some(Boolean) || Math.hypot(stick.x, stick.y) > 0.08));
+  } else {
+    drawCat(board, now);
+  }
 }
 
 function resize() {

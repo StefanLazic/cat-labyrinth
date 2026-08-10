@@ -7,11 +7,13 @@
     <meta name="description" content="Guide Mochi across a tiny, surprising 3D labyrinth board.">
     <title>Mochi's Moonlit Labyrinth</title>
     <link rel="stylesheet" href="style.css">
+    <script type="module" src="cat-3d.js"></script>
     <script src="game.js" defer></script>
   </head>
   <body>
     <main id="game" data-state="intro">
       <canvas id="maze" role="img" aria-label="An isometric 3D labyrinth board with Mochi the cat"></canvas>
+      <canvas id="cat-layer" aria-hidden="true"></canvas>
       <div class="vignette" aria-hidden="true"></div>
 
       <header class="hud" aria-label="Game status">
