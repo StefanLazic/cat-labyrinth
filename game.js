@@ -347,7 +347,8 @@ function drawCat(board, now) {
   const point = project(player.x, player.y, board);
   const size = board.tileWidth * 0.54;
   const moving = Object.values(keys).some(Boolean) || Math.hypot(stick.x, stick.y) > 0.08;
-  const bounce = moving ? Math.sin(now / 90) * board.tileHeight * 0.08 : 0;
+  const stride = moving ? Math.sin(now / 90) : 0;
+  const bounce = Math.abs(stride) * board.tileHeight * 0.08;
   const screenFacing = player.facingX - player.facingY;
   context.save();
   context.translate(point.x, point.y - size * 0.5 + bounce);
@@ -361,6 +362,27 @@ function drawCat(board, now) {
   context.beginPath();
   context.arc(-size * 0.25, size * 0.2, size * 0.42, 0.2, Math.PI * 1.3);
   context.stroke();
+
+  for (const pair of [-1, 1]) {
+    for (const side of [-1, 1]) {
+      const legStride = side * pair * stride;
+      const hipX = side * size * (0.18 + pair * 0.035);
+      const hipY = size * (0.23 + pair * 0.025);
+      const pawX = hipX + legStride * size * 0.15;
+      const pawY = size * (0.47 - Math.abs(legStride) * 0.035);
+      context.strokeStyle = pair < 0 ? "#d96f35" : "#f28b42";
+      context.lineWidth = size * 0.12;
+      context.beginPath();
+      context.moveTo(hipX, hipY);
+      context.lineTo(pawX, pawY);
+      context.stroke();
+      context.fillStyle = "#fff4d8";
+      context.beginPath();
+      context.ellipse(pawX + legStride * size * 0.035, pawY,
+        size * 0.09, size * 0.055, legStride * 0.2, 0, Math.PI * 2);
+      context.fill();
+    }
+  }
 
   context.fillStyle = "#f28b42";
   context.beginPath();
