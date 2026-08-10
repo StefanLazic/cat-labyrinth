@@ -174,11 +174,18 @@ if (gl) {
       draw(sphere, matrix(x, ground - size * 0.6 + bob, 0, size * 0.34, size * 0.43, size * 0.27, facing), orange);
       draw(sphere, matrix(x, ground - size * 0.6 + bob, 12, size * 0.2, size * 0.27, size * 0.08, facing), cream);
 
-      for (const side of [-1, 1]) {
-        draw(sphere, matrix(x + side * size * 0.19, ground - size * 0.2 + bob,
-          5, size * 0.09, size * 0.28, size * 0.1, facing, side * stride * 0.18), orange);
-        draw(sphere, matrix(x + side * size * 0.2, ground - size * 0.02 + bob,
-          14, size * 0.12, size * 0.08, size * 0.13, facing), cream);
+      for (const pair of [-1, 1]) {
+        for (const side of [-1, 1]) {
+          const legStride = side * pair * stride;
+          const legX = x + side * size * (0.16 + pair * 0.035);
+          const legGround = ground - size * (0.19 + pair * 0.07);
+          draw(sphere, matrix(legX + legStride * size * 0.07, legGround + bob,
+            pair * 9 + 9, size * 0.085, size * 0.27, size * 0.09,
+            facing, legStride * 0.5), orange);
+          draw(sphere, matrix(legX + legStride * size * 0.15,
+            ground - size * (0.015 + pair * 0.025),
+            pair * 9 + 17, size * 0.115, size * 0.075, size * 0.12, facing), cream);
+        }
       }
 
       draw(sphere, matrix(x, ground - size * 1.18 + bob, 4, size * 0.34, size * 0.31, size * 0.3, facing), orange);
