@@ -13,6 +13,12 @@ const stepsElement = document.querySelector("#steps");
 const toast = document.querySelector("#toast");
 const joystick = document.querySelector("#joystick");
 const joystickKnob = document.querySelector("#joystick-knob");
+const mouseStatus = document.querySelector("#mouse-status");
+const proximityFill = document.querySelector("#proximity-fill");
+const dashButton = document.querySelector("#dash");
+const sniffButton = document.querySelector("#sniff");
+const dashLabel = document.querySelector("#dash-label");
+const sniffLabel = document.querySelector("#sniff-label");
 
 const CELL_COUNT = 7;
 const MAP_SIZE = CELL_COUNT * 2 + 1;
@@ -30,7 +36,7 @@ const palettes = [
 
 let map = [];
 let player = { x: 1.5, y: 1.5, facingX: 1, facingY: 0 };
-let mouse = { x: 1.5, y: 1.5, emoji: "🐭" };
+let mouse = { x: 1.5, y: 1.5, state: "hiding", path: [], pathIndex: 0, repathAt: 0 };
 let fish = [];
 let portals = [];
 let keys = {};
@@ -42,10 +48,59 @@ let startedAt = 0;
 let lastFrame = performance.now();
 let dashUntil = 0;
 let sniffUntil = 0;
+let dashReadyAt = 0;
+let sniffReadyAt = 0;
 let portalCooldown = 0;
 let surpriseTriggered = false;
 let paletteIndex = 0;
 let toastTimer;
+let mouseWasAlerted = false;
+let footstepAt = 0;
+let shakeUntil = 0;
+let effects = [];
+let audioContext;
+
+function playSound(kind) {
+  try {
+    audioContext ||= new (window.AudioContext || window.webkitAudioContext)();
+    if (audioContext.state === "suspended") audioContext.resume();
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    const now = audioContext.currentTime;
+    const sounds = {
+      step: [110, 75, 0.035, "sine", 0.025],
+      fish: [620, 980, 0.16, "sine", 0.08],
+      dash: [180, 520, 0.18, "sawtooth", 0.045],
+      sniff: [260, 390, 0.22, "sine", 0.055],
+      squeak: [860, 1220, 0.12, "square", 0.035],
+      portal: [220, 880, 0.35, "sine", 0.07],
+      catch: [440, 1040, 0.55, "triangle", 0.11],
+    };
+    const [start, end, duration, type, volume] = sounds[kind] || sounds.step;
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(start, now);
+    oscillator.frequency.exponentialRampToValueAtTime(end, now + duration);
+    gain.gain.setValueAtTime(volume, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+    oscillator.connect(gain).connect(audioContext.destination);
+    oscillator.start(now);
+    oscillator.stop(now + duration);
+  } catch {
+    // Audio is optional when the browser blocks Web Audio.
+  }
+}
+
+function burst(x, y, color, count = 10) {
+  for (let index = 0; index < count; index += 1) {
+    const angle = Math.PI * 2 * index / count + Math.random() * 0.45;
+    const speed = 22 + Math.random() * 45;
+    effects.push({
+      x, y, color, life: 0.65 + Math.random() * 0.3,
+      age: 0, size: 2 + Math.random() * 4,
+      vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed - 18,
+    });
+  }
+}
 
 function shuffle(values) {
   for (let index = values.length - 1; index > 0; index -= 1) {
@@ -107,7 +162,14 @@ function resetGame() {
   const openCells = openCellsByDistance();
   const farthest = openCells[openCells.length - 1];
   const candidates = openCells.slice(7, -4);
-  mouse = { x: farthest.x + 0.5, y: farthest.y + 0.5, emoji: Math.random() < 0.12 ? "🦝" : "🐭" };
+  mouse = {
+    x: farthest.x + 0.5,
+    y: farthest.y + 0.5,
+    state: "hiding",
+    path: [],
+    pathIndex: 0,
+    repathAt: 0,
+  };
   fish = shuffle(candidates.slice()).slice(0, 6).map((cell, index) => ({
     x: cell.x + 0.5,
     y: cell.y + 0.5,
@@ -129,10 +191,18 @@ function resetGame() {
   surpriseTriggered = false;
   paletteIndex = 0;
   portalCooldown = 0;
+  dashUntil = 0;
+  sniffUntil = 0;
+  dashReadyAt = 0;
+  sniffReadyAt = 0;
+  mouseWasAlerted = false;
+  effects = [];
   stepsElement.textContent = "0";
   fishCount.textContent = "0";
   fishTotal.textContent = String(fish.length);
   objective.textContent = "Catch the moon mouse";
+  mouseStatus.textContent = "Quiet paws…";
+  proximityFill.style.width = "0%";
   endScreen.hidden = true;
   game.dataset.state = playing ? "playing" : "intro";
 }
@@ -171,6 +241,10 @@ function movePlayer(horizontal, vertical, delta) {
   steps += travelled;
   stepsElement.textContent = String(Math.floor(steps * 2));
   if (!startedAt) startedAt = Date.now();
+  if (performance.now() >= footstepAt) {
+    playSound("step");
+    footstepAt = performance.now() + (boost > 1 ? 115 : 190);
+  }
   collectNearby();
   usePortal();
 }
@@ -181,6 +255,8 @@ function collectNearby() {
       item.found = true;
       const count = fish.filter(({ found }) => found).length;
       fishCount.textContent = String(count);
+      burst(item.x, item.y, "#ffd166", 12);
+      playSound("fish");
       showToast(count === fish.length ? "🐟 Full snack pouch! Now pounce." : "🐟 Pocket fish acquired");
       if (count === 3 && !surpriseTriggered) triggerSurprise();
     }
@@ -191,8 +267,7 @@ function collectNearby() {
 function triggerSurprise() {
   surpriseTriggered = true;
   paletteIndex = 1 + Math.floor(Math.random() * (palettes.length - 1));
-  mouse.emoji = "🦄";
-  objective.textContent = "Catch the extremely normal mouse";
+  objective.textContent = "The maze is moon-charged!";
   showToast("✨ The moon sneezed! Secret portals woke up.");
 }
 
@@ -204,6 +279,9 @@ function usePortal() {
   player.x = exit.x;
   player.y = exit.y;
   portalCooldown = performance.now() + 1100;
+  shakeUntil = performance.now() + 260;
+  burst(exit.x, exit.y, exit.color, 18);
+  playSound("portal");
   showToast("🌀 Whisker wormhole!");
 }
 
@@ -211,6 +289,10 @@ function finishGame() {
   won = true;
   playing = false;
   game.dataset.state = "end";
+  mouse.state = "caught";
+  shakeUntil = performance.now() + 650;
+  burst(mouse.x, mouse.y, "#ff7d9c", 30);
+  playSound("catch");
   const found = fish.filter(({ found }) => found).length;
   const seconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
   document.querySelector("#end-title").textContent = found === fish.length ? "Snack master!" : "A purrfect pursuit";
@@ -229,16 +311,24 @@ function showToast(message) {
 }
 
 function sniff() {
-  if (!playing || won) return;
+  const now = performance.now();
+  if (!playing || won || now < sniffReadyAt) return;
   sniffUntil = performance.now() + 3000;
+  sniffReadyAt = now + 6500;
+  playSound("sniff");
   showToast("👃 Moon-scent trail revealed!");
 }
 
 function dash() {
-  if (!playing || won) return;
-  dashUntil = performance.now() + 900;
-  document.querySelector("#dash").classList.add("active");
-  window.setTimeout(() => document.querySelector("#dash").classList.remove("active"), 900);
+  const now = performance.now();
+  if (!playing || won || now < dashReadyAt) return;
+  dashUntil = now + 750;
+  dashReadyAt = now + 2600;
+  shakeUntil = now + 180;
+  dashButton.classList.add("active");
+  burst(player.x, player.y, "#6ee7ff", 14);
+  playSound("dash");
+  window.setTimeout(() => dashButton.classList.remove("active"), 750);
   showToast("⚡ Midnight zoomies!");
 }
 
@@ -416,9 +506,9 @@ function drawCat(board, now) {
   context.restore();
 }
 
-function findPath() {
-  const start = { x: Math.floor(player.x), y: Math.floor(player.y) };
-  const goal = { x: Math.floor(mouse.x), y: Math.floor(mouse.y) };
+function pathBetween(from, to) {
+  const start = { x: Math.floor(from.x), y: Math.floor(from.y) };
+  const goal = { x: Math.floor(to.x), y: Math.floor(to.y) };
   const queue = [start];
   const previous = new Map([[`${start.x},${start.y}`, null]]);
   for (let index = 0; index < queue.length; index += 1) {
@@ -442,6 +532,106 @@ function findPath() {
   return path.reverse();
 }
 
+function findPath() {
+  return pathBetween(player, mouse);
+}
+
+function chooseMouseEscape() {
+  const cells = openCellsByDistance();
+  const choices = cells
+    .filter((cell) => Math.hypot(cell.x + 0.5 - player.x, cell.y + 0.5 - player.y) > 3.2)
+    .map((cell) => ({
+      ...cell,
+      score: Math.hypot(cell.x + 0.5 - player.x, cell.y + 0.5 - player.y) * 2 +
+        Math.hypot(cell.x + 0.5 - mouse.x, cell.y + 0.5 - mouse.y) * 0.22 +
+        Math.random() * 1.8,
+    }))
+    .sort((first, second) => second.score - first.score);
+  return choices[0] || cells[cells.length - 1];
+}
+
+function updateMouse(delta, now) {
+  if (won) return;
+  const distance = Math.hypot(player.x - mouse.x, player.y - mouse.y);
+  const alertRadius = surpriseTriggered ? 4.8 : 4.1;
+  const wasFleeing = mouse.state === "fleeing";
+  if (distance < alertRadius) mouse.state = "fleeing";
+  else if (distance > alertRadius + 1.2) mouse.state = "hiding";
+
+  if (mouse.state === "fleeing" && !wasFleeing) {
+    mouse.path = [];
+    mouse.repathAt = 0;
+    burst(mouse.x, mouse.y, "#ff7d9c", 9);
+    playSound("squeak");
+    showToast(mouseWasAlerted ? "🐭 The mouse heard you again!" : "🐭 Spotted! Corner the moon mouse!");
+    mouseWasAlerted = true;
+  }
+
+  if (mouse.state === "fleeing" &&
+      (mouse.pathIndex >= mouse.path.length || now >= mouse.repathAt)) {
+    const target = chooseMouseEscape();
+    mouse.path = pathBetween(mouse, { x: target.x + 0.5, y: target.y + 0.5 });
+    mouse.pathIndex = Math.min(1, mouse.path.length);
+    mouse.repathAt = now + 1250;
+  }
+
+  if (mouse.state === "fleeing" && mouse.pathIndex < mouse.path.length) {
+    const cell = mouse.path[mouse.pathIndex];
+    const targetX = cell.x + 0.5;
+    const targetY = cell.y + 0.5;
+    const dx = targetX - mouse.x;
+    const dy = targetY - mouse.y;
+    const length = Math.hypot(dx, dy);
+    const speed = surpriseTriggered ? 1.42 : 1.28;
+    if (length < 0.06) {
+      mouse.pathIndex += 1;
+    } else {
+      const travel = Math.min(length, speed * delta);
+      mouse.x += dx / length * travel;
+      mouse.y += dy / length * travel;
+      mouse.facingX = dx / length;
+      mouse.facingY = dy / length;
+    }
+  }
+
+  const closeness = Math.max(0, Math.min(1, 1 - distance / 8));
+  proximityFill.style.width = `${Math.round(closeness * 100)}%`;
+  if (distance < 1.4) {
+    objective.textContent = "Pounce!";
+    mouseStatus.textContent = "Almost in paw's reach";
+  } else if (mouse.state === "fleeing") {
+    objective.textContent = "The moon mouse is running!";
+    mouseStatus.textContent = distance < 3 ? "Close—cut it off!" : "Follow those tiny paws";
+  } else {
+    objective.textContent = "Find the moon mouse";
+    mouseStatus.textContent = distance < 6 ? "You hear a squeak…" : "Quiet paws…";
+  }
+
+  if (distance < 0.52) finishGame();
+}
+
+function drawEffects(board, delta) {
+  effects = effects.filter((effect) => {
+    effect.age += delta;
+    if (effect.age >= effect.life) return false;
+    const point = project(effect.x, effect.y, board);
+    const fade = 1 - effect.age / effect.life;
+    context.globalAlpha = fade;
+    context.fillStyle = effect.color;
+    context.beginPath();
+    context.arc(
+      point.x + effect.vx * effect.age,
+      point.y + effect.vy * effect.age + 45 * effect.age * effect.age,
+      effect.size * fade,
+      0,
+      Math.PI * 2,
+    );
+    context.fill();
+    return true;
+  });
+  context.globalAlpha = 1;
+}
+
 function drawScentTrail(board, now) {
   if (now >= sniffUntil) return;
   const path = findPath().slice(1);
@@ -461,7 +651,7 @@ function drawScentTrail(board, now) {
   context.restore();
 }
 
-function drawWorld(now) {
+function drawWorld(now, delta) {
   const board = layout();
   const palette = palettes[paletteIndex];
   const background = context.createLinearGradient(0, 0, 0, board.height);
@@ -487,17 +677,25 @@ function drawWorld(now) {
     }
     fish.filter((item) => !item.found && Math.floor(item.x) + Math.floor(item.y) === depth)
       .forEach((item) => drawEmoji(item, "🐟", board, now));
-    if (Math.floor(mouse.x) + Math.floor(mouse.y) === depth) drawEmoji(mouse, mouse.emoji, board, now, 0.66);
     if (surpriseTriggered) {
       portals.filter((portal) => Math.floor(portal.x) + Math.floor(portal.y) === depth)
         .forEach((portal) => drawPortal(portal, board, now));
     }
   }
   drawScentTrail(board, now);
+  drawEffects(board, delta);
   if (window.cat3D) {
-    window.cat3D.render(player, board, now, playing && !won &&
-      (Object.values(keys).some(Boolean) || Math.hypot(stick.x, stick.y) > 0.08));
+    window.cat3D.render(
+      player,
+      mouse,
+      board,
+      now,
+      playing && !won &&
+        (Object.values(keys).some(Boolean) || Math.hypot(stick.x, stick.y) > 0.08),
+      now < dashUntil,
+    );
   } else {
+    drawEmoji(mouse, "🐭", board, now, 0.66);
     drawCat(board, now);
   }
 }
@@ -516,6 +714,24 @@ function updateCompass() {
   compass.style.transform = `rotate(${angle}rad)`;
 }
 
+function updateFeedback(now) {
+  const dashRemaining = Math.max(0, dashReadyAt - now);
+  const sniffRemaining = Math.max(0, sniffReadyAt - now);
+  dashButton.classList.toggle("cooling", dashRemaining > 0);
+  sniffButton.classList.toggle("cooling", sniffRemaining > 0);
+  dashLabel.textContent = dashRemaining > 0 ? `${(dashRemaining / 1000).toFixed(1)}s` : "Zoom";
+  sniffLabel.textContent = sniffRemaining > 0 ? `${Math.ceil(sniffRemaining / 1000)}s` : "Sniff";
+
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const shaking = !reducedMotion && now < shakeUntil;
+  const x = shaking ? (Math.random() - 0.5) * 7 : 0;
+  const y = shaking ? (Math.random() - 0.5) * 5 : 0;
+  const scale = !reducedMotion && now < dashUntil ? 1.012 : 1;
+  const transform = `translate(${x}px, ${y}px) scale(${scale})`;
+  canvas.style.transform = transform;
+  document.querySelector("#cat-layer").style.transform = transform;
+}
+
 function frame(now) {
   const delta = Math.min(0.04, (now - lastFrame) / 1000);
   lastFrame = now;
@@ -525,9 +741,11 @@ function frame(now) {
     const vertical = (keys.KeyS || keys.ArrowDown ? 1 : 0) -
       (keys.KeyW || keys.ArrowUp ? 1 : 0) + stick.y;
     movePlayer(horizontal, vertical, delta);
+    updateMouse(delta, now);
     updateCompass();
   }
-  drawWorld(now);
+  updateFeedback(now);
+  drawWorld(now, delta);
   requestAnimationFrame(frame);
 }
 

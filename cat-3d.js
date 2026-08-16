@@ -115,6 +115,8 @@ if (gl) {
   const cream = [1, 0.957, 0.847];
   const charcoal = [0.153, 0.125, 0.22];
   const pink = [0.875, 0.325, 0.427];
+  const mouseGray = [0.52, 0.56, 0.66];
+  const mouseLight = [0.82, 0.84, 0.88];
 
   function matrix(x, y, z, sx, sy, sz, turn = 0, tilt = 0) {
     const cosine = Math.cos(turn);
@@ -158,20 +160,35 @@ if (gl) {
   gl.enable(gl.DEPTH_TEST);
 
   window.cat3D = {
-    render(player, board, now, moving) {
+    render(player, mouse, board, now, moving, dashing) {
       const x = board.originX + (player.x - player.y) * board.tileWidth / 2;
       const ground = board.originY + (player.x + player.y) * board.tileHeight / 2;
       const size = board.tileWidth * 0.5;
-      const stride = moving ? Math.sin(now / 90) : 0;
-      const bob = Math.abs(stride) * size * 0.035;
+      const stride = moving ? Math.sin(now / (dashing ? 58 : 86)) : 0;
+      const bob = Math.abs(stride) * size * (dashing ? 0.07 : 0.045);
       const facing = (player.facingX - player.facingY < 0 ? -1 : 1) * 0.24;
+      const lean = moving ? (dashing ? 0.22 : 0.08) : Math.sin(now / 700) * 0.018;
 
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
       draw(sphere, matrix(x, ground, -20, size * 0.43, size * 0.1, size * 0.34), charcoal, 0.38);
-      draw(sphere, matrix(x - size * 0.34, ground - size * 0.66 + bob, 0, size * 0.12, size * 0.42, size * 0.12, facing, 0.45), darkOrange);
-      draw(sphere, matrix(x, ground - size * 0.6 + bob, 0, size * 0.34, size * 0.43, size * 0.27, facing), orange);
+      const tailSwing = Math.sin(now / (moving ? 105 : 310)) * (moving ? 0.55 : 0.28);
+      for (let segment = 0; segment < 3; segment += 1) {
+        draw(sphere, matrix(
+          x - size * (0.31 + segment * 0.13) + tailSwing * size * segment * 0.035,
+          ground - size * (0.61 + segment * 0.13) + bob,
+          -segment * 2,
+          size * (0.12 - segment * 0.015),
+          size * 0.24,
+          size * (0.12 - segment * 0.015),
+          facing,
+          0.65 + tailSwing * 0.22,
+        ), segment === 1 ? orange : darkOrange);
+      }
+      draw(sphere, matrix(x, ground - size * 0.6 + bob, 0,
+        size * (dashing ? 0.39 : 0.34), size * (dashing ? 0.38 : 0.43),
+        size * 0.27, facing, lean), orange);
       draw(sphere, matrix(x, ground - size * 0.6 + bob, 12, size * 0.2, size * 0.27, size * 0.08, facing), cream);
 
       for (const pair of [-1, 1]) {
@@ -179,16 +196,17 @@ if (gl) {
           const legStride = side * pair * stride;
           const legX = x + side * size * (0.16 + pair * 0.035);
           const legGround = ground - size * (0.19 + pair * 0.07);
-          draw(sphere, matrix(legX + legStride * size * 0.07, legGround + bob,
-            pair * 9 + 9, size * 0.085, size * 0.27, size * 0.09,
-            facing, legStride * 0.5), orange);
-          draw(sphere, matrix(legX + legStride * size * 0.15,
-            ground - size * (0.015 + pair * 0.025),
+          draw(sphere, matrix(legX + legStride * size * 0.13, legGround + bob,
+            pair * 9 + 9, size * 0.09, size * 0.28, size * 0.095,
+            facing, legStride * (dashing ? 0.95 : 0.72)), orange);
+          draw(sphere, matrix(legX + legStride * size * 0.25,
+            ground - size * (0.015 + pair * 0.025) - Math.max(0, legStride) * size * 0.08,
             pair * 9 + 17, size * 0.115, size * 0.075, size * 0.12, facing), cream);
         }
       }
 
-      draw(sphere, matrix(x, ground - size * 1.18 + bob, 4, size * 0.34, size * 0.31, size * 0.3, facing), orange);
+      draw(sphere, matrix(x + lean * size * 0.25, ground - size * 1.18 + bob,
+        4, size * 0.34, size * 0.31, size * 0.3, facing, lean * 0.5), orange);
       for (const side of [-1, 1]) {
         draw(cone, matrix(x + side * size * 0.22, ground - size * 1.48 + bob,
           1, size * 0.16, size * 0.24, size * 0.15, facing, side * -0.16), orange);
@@ -199,6 +217,53 @@ if (gl) {
       }
       draw(cone, matrix(x, ground - size * 1.11 + bob, 29,
         size * 0.055, size * 0.055, size * 0.04, facing, Math.PI / 2), pink);
+
+      if (!mouse) return;
+      const mouseX = board.originX + (mouse.x - mouse.y) * board.tileWidth / 2;
+      const mouseGround = board.originY + (mouse.x + mouse.y) * board.tileHeight / 2;
+      const mouseSize = size * 0.58;
+      const fleeing = mouse.state === "fleeing";
+      const scurry = fleeing ? Math.sin(now / 58) : 0;
+      const mouseBob = Math.abs(scurry) * mouseSize * 0.08;
+      const mouseFacing = ((mouse.facingX || -1) - (mouse.facingY || 0) < 0 ? -1 : 1) * 0.3;
+
+      draw(sphere, matrix(mouseX, mouseGround, -18,
+        mouseSize * 0.44, mouseSize * 0.08, mouseSize * 0.3), charcoal, 0.28);
+      for (let segment = 0; segment < 4; segment += 1) {
+        draw(sphere, matrix(
+          mouseX - mouseSize * (0.35 + segment * 0.2),
+          mouseGround - mouseSize * (0.35 + segment * 0.04) +
+            Math.sin(now / 120 + segment) * mouseSize * 0.07,
+          -segment,
+          mouseSize * 0.1,
+          mouseSize * 0.2,
+          mouseSize * 0.08,
+          mouseFacing,
+          0.8,
+        ), pink);
+      }
+      draw(sphere, matrix(mouseX, mouseGround - mouseSize * 0.4 + mouseBob,
+        3, mouseSize * 0.4, mouseSize * 0.35, mouseSize * 0.31, mouseFacing), mouseGray);
+      draw(sphere, matrix(mouseX + mouseSize * 0.16, mouseGround - mouseSize * 0.76 + mouseBob,
+        9, mouseSize * 0.3, mouseSize * 0.27, mouseSize * 0.25, mouseFacing), mouseGray);
+      for (const side of [-1, 1]) {
+        draw(sphere, matrix(mouseX + side * mouseSize * 0.22,
+          mouseGround - mouseSize * 0.96 + mouseBob, 7,
+          mouseSize * 0.16, mouseSize * 0.19, mouseSize * 0.08,
+          mouseFacing, side * 0.18), pink);
+        draw(sphere, matrix(mouseX + side * mouseSize * 0.1,
+          mouseGround - mouseSize * 0.78 + mouseBob, 28,
+          mouseSize * 0.035, mouseSize * 0.045, mouseSize * 0.025,
+          mouseFacing), charcoal);
+        const pawSwing = side * scurry * mouseSize * 0.17;
+        draw(sphere, matrix(mouseX + side * mouseSize * 0.2 + pawSwing,
+          mouseGround - mouseSize * 0.08, 15,
+          mouseSize * 0.12, mouseSize * 0.06, mouseSize * 0.1,
+          mouseFacing), mouseLight);
+      }
+      draw(sphere, matrix(mouseX + mouseSize * 0.2, mouseGround - mouseSize * 0.67 + mouseBob,
+        31, mouseSize * 0.07, mouseSize * 0.055, mouseSize * 0.045,
+        mouseFacing), pink);
     },
   };
 }

@@ -18,7 +18,11 @@
 
       <header class="hud" aria-label="Game status">
         <div class="brand"><span>MOCHI'S</span><strong>Moonlit Labyrinth</strong></div>
-        <div class="objective"><span id="objective">Catch the moon mouse</span><b id="compass" aria-hidden="true">▲</b></div>
+        <div class="objective">
+          <span class="objective-copy"><span id="objective">Find the moon mouse</span><small id="mouse-status">Quiet paws…</small></span>
+          <span class="proximity" aria-hidden="true"><i id="proximity-fill"></i></span>
+          <b id="compass" aria-hidden="true">▲</b>
+        </div>
         <div class="stats">
           <span>🐟 <b id="fish-count">0</b>/<b id="fish-total">0</b></span>
           <span>🐾 <b id="steps">0</b></span>
@@ -33,8 +37,8 @@
           <span id="joystick-knob" class="joystick-knob"></span>
         </div>
         <div class="actions">
-          <button id="dash" class="action dash" type="button" aria-label="Dash"><span>⚡</span><small>Zoom</small></button>
-          <button id="sniff" class="action sniff" type="button" aria-label="Sniff for the mouse"><span>👃</span><small>Sniff</small></button>
+          <button id="dash" class="action dash" type="button" aria-label="Dash"><span>⚡</span><small id="dash-label">Zoom</small></button>
+          <button id="sniff" class="action sniff" type="button" aria-label="Sniff for the mouse"><span>👃</span><small id="sniff-label">Sniff</small></button>
         </div>
       </section>
 
@@ -43,7 +47,7 @@
           <p class="eyebrow">A tiny 3D board adventure</p>
           <div class="hero" aria-hidden="true">🐈‍⬛ <span>🌙</span> 🐭</div>
           <h1>Mochi's<br><em>Moonlit Labyrinth</em></h1>
-          <p>The moon mouse stole your bedtime snack. Guide Mochi across the board, collect fish, and expect the maze to misbehave.</p>
+          <p>The moon mouse stole your bedtime snack—and it will run when it sees you. Follow its scent, collect fish, and corner it in the shifting maze.</p>
           <button id="start" class="primary" type="button">Pounce onto the board</button>
           <p class="control-hint"><span>WASD / arrows · Shift to zoom · F to sniff</span><span>Touch stick · Zoom · Sniff</span></p>
         </div>
